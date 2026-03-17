@@ -174,7 +174,22 @@ IGNORE 1 LINES
         conn.commit()
         print("Import complete via LOAD DATA LOCAL INFILE.")
     except mysql.connector.Error as e:
-        if getattr(e, "errno", None) in (ER_LOCAL_INFILE_DISABLED, ER_NOT_ALLOWED_COMMAND):
+        # ── 수정된 부분 ───────────────────────────────────────────────────
+        # 기존: errno만 체크 → DigitalOcean에서 DatabaseError로 래핑되면
+        #       errno가 None이 되어 fallback이 동작하지 않는 버그 존재
+        # 수정: errno + 에러 메시지 문자열을 함께 체크하여 모든 케이스 처리
+        err_msg = str(e).lower()
+        errno   = getattr(e, "errno", None)
+
+        is_infile_error = (
+            errno in (ER_LOCAL_INFILE_DISABLED, ER_NOT_ALLOWED_COMMAND)
+            or "local data is disabled" in err_msg
+            or "local infile" in err_msg
+            or "file request rejected" in err_msg
+        )
+        # ─────────────────────────────────────────────────────────────────
+
+        if is_infile_error:
             print("LOAD DATA LOCAL INFILE is disabled on the server; switching to batched INSERT mode...")
             df_full = pd.read_csv(args.csv, encoding="utf-8-sig")
             # align to sanitized names
